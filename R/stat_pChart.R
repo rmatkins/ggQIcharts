@@ -22,11 +22,36 @@ test_data[c(10,35,50),'num_pos'] <- test_data[c(10,35,50),'num_pos'] + 15
 Pchart <- ggproto(
   'Pchart',
   Stat,
-  compute_group = function(data,scales, n = NULL, which.line = 'prop') {
-      if (is.null(n)) {
+  compute_group = function(data,scales, which.line = 'prop') {
+      if (is.null(data$n)) {
         warning('p Chart Error - requires area of opportunity "n"')
         return(NULL)
       }
+    
+    if (max(table(data$x)) > 1) {
+      
+      x <- sort(unique(data$x))
+      
+      y <- data %>% 
+        group_by(x) %>% 
+        summarise(y = sum(y)) %>% 
+        select(y) %>% t() %>% as.vector()
+      
+      n <- data %>%
+        group_by(x) %>% 
+        summarise(n = sum(n)) %>% 
+        select(n) %>% t() %>% as.vector()
+
+      
+      prop = y/n
+      mean = rep(mean(prop),times = length(y))
+      sigma = sqrt(prop*(1-prop)/n)
+      ucl = mean + 3*sigma
+      lcl = mean - 3*sigma
+      
+      returnData <- data.frame(x = x, sigma, ucl, lcl)
+      
+    } else {
       prop = data$y/n
       mean = rep(mean(prop),times = length(data$x))
       sigma = sqrt(prop*(1-prop)/n)
@@ -34,23 +59,24 @@ Pchart <- ggproto(
       lcl = mean - 3*sigma
       
       returnData <- data.frame(x = data$x, sigma, ucl, lcl)
-      
+    }
       returnData$y <- 
         switch(which.line,
         'prop' = prop,
         'mean' = mean,
         'ucl' = ucl,
         'lcl' = lcl)
-      View(returnData)
+
       returnData
   },
-  required_aes = c('x','y')
+  required_aes = c('x','y','n')
 )
 
 ## Create layer function for pChart stat
 stat_pChart <- function(mapping = NULL, data = NULL, inherit.aes = TRUE, geom = 'line',
                         position = 'identity', show.legend = FALSE,
-                        which.line = which.line,...) {
+                        which.line = which.line, direction = "half",
+                        ...) {
   propLine <- layer(stat = Pchart, data = data, mapping = mapping, geom = geom,
                     position = position, inherit.aes = inherit.aes,
                     show.legend = show.legend, params = list(which.line = 'prop',...))
@@ -59,10 +85,14 @@ stat_pChart <- function(mapping = NULL, data = NULL, inherit.aes = TRUE, geom = 
                     show.legend = show.legend, params = list(which.line = 'mean',...))
   uclLine <- layer(stat = Pchart, data = data, mapping = mapping, geom = 'step',
                     position = position, inherit.aes = inherit.aes,
-                    show.legend = show.legend, params = list(which.line = 'ucl',...))
+                    show.legend = show.legend, params = list(which.line = 'ucl',
+                                                             direction = direction,
+                                                             ...))
   lclLine <- layer(stat = Pchart, data = data, mapping = mapping, geom = 'step',
                     position = position, inherit.aes = inherit.aes,
-                    show.legend = show.legend, params = list(which.line = 'lcl',...))
+                    show.legend = show.legend, params = list(which.line = 'lcl',
+                                                             direction = direction,
+                                                             ...))
   points <- layer(stat = Pchart, data = data, 
                   mapping = aes(color = (..y.. > ..ucl..) | (..y.. < ..lcl..)), 
                   geom = 'point',
@@ -73,7 +103,8 @@ stat_pChart <- function(mapping = NULL, data = NULL, inherit.aes = TRUE, geom = 
 }
 
 # test new function
-ggplot(test_data, aes(x = week_of, y = num_pos)) + 
-  stat_pChart(n = test_data$num_obs) + 
+
+ggplot(test_data, aes(x = week_of, y = num_pos, n = num_obs)) + 
+  stat_pChart() + 
   scale_color_manual(values =c('black','red'))
 
